@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Futebol Brasileiro - Jogo Básico</title>
+<style>
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0; font-family: Arial, sans-serif; background: #0a5;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh;
+    color: white;
+  }
+  #menu, #game {
+    width: 100%; max-width: 480px; background: #145214; border-radius: 12px; padding: 20px;
+    box-shadow: 0 0 15px #020;
+  }
+  #menu {
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  label {
+    font-weight: bold; font-size: 1.1rem; margin-bottom: 6px; display: block;
+  }
+  select, button {
+    width: 100%; padding: 10px; border-radius: 8px; border: none; font-size: 1rem;
+  }
+  button {
+    background: #2d7; color: #040; font-weight: 700;
+    cursor: pointer;
+    margin-top: 20px;
+    box-shadow: 0 0 10px #0a5;
+  }
+  button:hover {
+    background: #3f9;
+  }
+  #game {
+    position: relative; display: none; overflow: hidden;
+  }
+  canvas {
+    background: linear-gradient(180deg, #0a5 0%, #050 100%);
+    border-radius: 12px;
+    display: block;
+    margin: auto;
+    max-width: 100%;
+    touch-action: none;
+  }
+  #hud {
+    margin-top: 8px; display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1rem;
+  }
+</style>
+</head>
+<body>
+
+<div id="menu" role="main" aria-label="Menu do jogo">
+  <h1>Futebol Brasileiro</h1>
+  <label for="teamSelect">Escolha seu time:</label>
+  <select id="teamSelect" aria-describedby="teamHelp">
+    <!-- Times com logo genérica -->
+  </select>
+  <small id="teamHelp">Selecione seu time brasileiro preferido</small>
+
+  <label for="difficultySelect">Escolha a dificuldade:</label>
+  <select id="difficultySelect">
+    <option value="easy">Fácil</option>
+    <option value="medium" selected>Médio</option>
+    <option value="hard">Difícil</option>
+  </select>
+
+  <button id="startBtn" aria-label="Começar o jogo">Começar Jogo</button>
+</div>
+
+<div id="game" role="main" aria-label="Área do jogo de futebol">
+  <canvas id="gameCanvas" width="480" height="320" aria-label="Campo de futebol"></canvas>
+  <div id="hud" aria-live="polite" aria-atomic="true">
+    <div id="score">Você: 0</div>
+    <div id="opponentScore">Adversário: 0</div>
+  </div>
+  <button id="backBtn" aria-label="Voltar ao menu" style="margin-top:10px; width: 100%; background: #a22; color: white; box-shadow:none;">Voltar ao Menu</button>
+</div>
+
+<script>
+(() => {
+  // Times brasileiros com logo genérica (círculo com letras)
+  const teams = [
+    {id: 'flamengo', name: 'Flamengo', initials: 'F'},
+    {id: 'palmeiras', name: 'Palmeiras', initials: 'P'},
+    {id: 'santos', name: 'Santos', initials: 'S'},
+    {id: 'corinthians', name: 'Corinthians', initials: 'C'},
+    {id: 'vasco', name: 'Vasco', initials: 'V'},
+    {id: 'grêmio', name: 'Grêmio', initials: 'G'},
+    {id: 'internacional', name: 'Internacional', initials: 'I'},
+    {id: 'atlético_mg', name: 'Atlético MG', initials: 'A'},
+    {id: 'botafogo', name: 'Botafogo', initials: 'B'},
+    {id: 'cruzeiro', name: 'Cruzeiro', initials: 'Cr'},
+    {id: 'bahia', name: 'Bahia', initials: 'Ba'},
+    {id: 'fortaleza', name: 'Fortaleza', initials: 'Fo'},
+  ];
+
+  const teamSelect = document.getElementById('teamSelect');
+  const difficultySelect = document.getElementById('difficultySelect');
+  const startBtn = document.getElementById('startBtn');
+  const backBtn = document.getElementById('backBtn');
+
+  const menu = document.getElementById('menu');
+  const gameDiv = document.getElementById('game');
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const opponentScoreEl = document.getElementById('opponentScore');
+
+  // Preencher select com times
+  for (const team of teams){
+    const option = document.createElement('option');
+    option.value = team.id;
+    option.textContent = team.name;
+    teamSelect.appendChild(option);
+  }
+
+  // Config jogo
+  let playerTeam, difficulty;
+  let gameState;
+
+  // Jogo simples: você controla o jogador com o dedo, tenta fazer gols contra IA simples
+
+  // Config canvas campo
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Jogador e adversário como círculos com iniciais do time
+  class Player {
+    constructor(x, y, team, isUser){
+      this.x = x;
+      this.y = y;
+      this.team = team;
+      this.isUser = isUser;
+      this.radius = 14;
+      this.speed = 2 + (difficulty === 'easy' ? 0 : difficulty === 'medium' ? 1 : 2);
+      this.hasBall = false;
+    }
+    draw(ctx){
+      ctx.fillStyle = this.isUser ? '#0f0' : '#f00';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold 16px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(this.team.initials, this.x, this.y);
+      if (this.hasBall){
+        ctx.strokeStyle = '#ff0';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius+4, 0, 2*Math.PI);
+        ctx.stroke();
+      }
+    }
+    moveTo(targetX, targetY){
+      const dx = targetX - this.x;
+      const dy = targetY - this.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < 1) return;
+      const step = Math.min(this.speed, dist);
+      this.x += dx/dist * step;
+      this.y += dy/dist * step;
+      // limitar área dentro do campo
+      this.x = Math.min(Math.max(this.x, this.radius), width - this.radius);
+      this.y = Math.min(Math.max(this.y, this.radius), height - this.radius);
+    }
+  }
+
+  // Bola
+  class Ball {
+    constructor(x,y){
+      this.x = x;
+      this.y = y;
+      this.radius = 8;
+      this.owner = null; // player que controla
+      this.speedX = 0;
+      this.speedY = 0;
+    }
+    draw(ctx){
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, 2*Math.PI);
+      ctx.fill();
+    }
+    update(){
+      if (this.owner){
+        // Bola acompanha o dono
+        this.x = this.owner.x;
+        this.y = this.owner.y;
+      } else {
+        // movimenta bola se chutada
+        this.x += this.speedX;
+        this.y += this.speedY;
+        // desacelera bola
+        this.speedX *= 0.95;
+        this.speedY *= 0.95;
+        // colisão com bordas do campo
+        if (this.x < this.radius) {
+          this.x = this.radius;
+          this.speedX = -this.speedX * 0.6;
+        }
+        if (this.x > width - this.radius) {
+          this.x = width - this.radius;
+          this.speedX = -this.speedX * 0.6;
+        }
+        if (this.y < this.radius) {
+          this.y = this.radius;
+          this.speedY = -this.speedY * 0.6;
+        }
+        if (this.y > height - this.radius) {
+          this.y = height - this.radius;
+          this.speedY = -this.speedY * 0.6;
+        }
+        // parar bola se quase parou
+        if (Math.abs(this.speedX) < 0.1) this.speedX = 0;
+        if (Math.abs(this.speedY) < 0.1) this.speedY = 0;
+      }
+    }
+  }
+
+  // Campo e gol simples
+  function drawField(){
+    // grama
+    ctx.fillStyle = '#0a5';
+    ctx.fillRect(0,0,width,height);
+    // linhas brancas
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0,0,width,height);
+    // linha do meio
+    ctx.beginPath();
+    ctx.moveTo(width/2, 0);
+    ctx.lineTo(width/2, height);
+    ctx.stroke();
+    // círculo central
+    ctx.beginPath();
+    ctx.arc(width/2, height/2, 40, 0, 2*Math.PI);
+    ctx.stroke();
+    // gols
+    const goalW = 80;
+    ctx.fillStyle = '#fff';
+    // gol superior
+    ctx.fillRect(width/2 - goalW/2, 0, goalW, 8);
+    // gol inferior
+    ctx.fillRect(width/2 - goalW/2, height - 8, goalW, 8);
+  }
+
+  // Variáveis jogo
+  let user, opponent, ball;
+  let userScore = 0;
+  let opponentScore = 0;
+
+  // Controle por toque (arrastar)
+  let touchId = null;
+  let targetX = width/2;
+  let targetY = height*0.75;
+
+  // Estado do jogo
+  let lastTime = 0;
+
+  // Iniciar jogo
+  function startGame(){
+    userScore = 0;
+    opponentScore = 0;
+    scoreEl.textContent = 'Você: 0';
+    opponentScoreEl.textContent = 'Adversário: 0';
+
+    // Pos iniciais
+    user = new Player(width/2, height*0.75, teams.find(t => t.id === playerTeam), true);
+    opponent = new Player(width/2, height*0.25, teams.find(t => t.id !== playerTeam), false);
+    ball = new Ball(width/2, height/2);
+
+    // Bola inicialmente com usuário
+    ball.owner = user;
+    user.hasBall = true;
+
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+  }
+
+  // IA adversária básica (movimenta em direção ao usuário)
+  function aiMove(delta){
+    if (ball.owner === opponent) {
+      // IA tem bola: tenta chutar para gol
+      if (Math.random() < 0.01 * (difficulty === 'hard' ? 2 : difficulty === 'medium' ? 1 : 0.5)) {
+        shoot(opponent);
+      }
+    } else {
+      // Se bola no chão, tenta ir buscar
+      const dx = ball.x - opponent.x;
+      const dy = ball.y - opponent.y;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        opponent.moveTo(ball.x, ball.y);
+      }
+    }
+  }
+
+  // Detecta colisão entre jogador e bola
+  function checkCollision(){
+    if (ball.owner === null) {
+      const dx = user.x - ball.x;
+      const dy = user.y - ball.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      if (dist < user.radius + ball.radius) {
+        ball.owner = user;
+        user.hasBall = true;
+        opponent.hasBall = false;
+      }
+      // Oponente pega bola
+      const dx2 = opponent.x - ball.x;
+      const dy2 = opponent.y - ball.y;
+      const dist2 = Math.sqrt(dx2*dx2 + dy2*dy2);
+      if (dist2 < opponent.radius + ball.radius) {
+        ball.owner = opponent;
+        opponent.hasBall = true;
+        user.hasBall = false;
+      }
+    }
+  }
+
+  // Chutar bola
+  function shoot(player){
+    if (player.hasBall){
+      const goalY = player.isUser ? 0 : height;
+      const goalX = width/2;
+      const dx = goalX - player.x;
+      const dy = goalY - player.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      ball.speedX = dx/dist * 8;
+      ball.speedY = dy/dist * 8;
+      ball.owner = null;
+      player.hasBall = false;
+    }
+  }
+
+  // Verifica gol
+  function checkGoal(){
+    // Gol superior
+    const goalW = 80;
+    if (ball.y - ball.radius <= 8) {
+      if (ball.x > width/2 - goalW/2 && ball.x < width/2 + goalW/2){
+        userScore++;
+        scoreEl.textContent = 'Você: ' + userScore;
+        resetRound();
+      } else {
+        ball.speedY = -ball.speedY * 0.7;
+      }
+    }
+    // Gol inferior
+    if (ball.y + ball.radius >= height - 8) {
+      if (ball.x > width/2 - goalW/2 && ball.x < width/2 + goalW/2){
+        opponentScore++;
+        opponentScoreEl.textContent = 'Adversário: ' + opponentScore;
+        resetRound();
+      } else {
+        ball.speedY = -ball.speedY * 0.7;
+      }
+    }
+  }
+
+  function resetRound(){
+    // Posicionar jogadores e bola no centro
+    user.x = width/2;
+    user.y = height*0.75;
+    opponent.x = width/2;
+    opponent.y = height*0.25;
+    ball.x = width/2;
+    ball.y = height/2;
+    ball.owner = user;
+    user.hasBall = true;
+    opponent.hasBall = false;
+  }
+
+  // Loop do jogo
+  function gameLoop(t){
+    const delta = t - lastTime;
+    lastTime = t;
+
+    ctx.clearRect(0,0,width,height);
+    drawField();
+
+    // Atualizar posições
+    if (ball.owner === null) {
+      ball.update();
+    } else {
+      ball.x = ball.owner.x;
+      ball.y = ball.owner.y;
+    }
+
+    // IA movimenta
+    aiMove(delta);
+
+    // Jogador se move em direção ao alvo (definido pelo toque)
+    user.moveTo(targetX, targetY);
+
+    // Verifica colisão bola-jogadores
+    checkCollision();
+
+    // Verifica gol
+    checkGoal();
+
+    // Desenha jogadores e bola
+    user.draw(ctx);
+    opponent.draw(ctx);
+    ball.draw(ctx);
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Eventos toque para controlar jogador
+  canvas.addEventListener('touchstart', (e) => {
+    const touch = e.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    targetX = touch.clientX - rect.left;
+    targetY = touch.clientY - rect.top;
+    e.preventDefault();
+  }, {passive: false});
+
+  canvas.addEventListener('touchmove', (e) => {
+    const touch = e.changedTouches[0];
+    const rect = canvas.getBoundingClientRect();
+    targetX = touch.clientX - rect.left;
+    targetY = touch.clientY - rect.top;
+    e.preventDefault();
+  }, {passive: false});
+
+  // Botões
+  startBtn.addEventListener('click', () => {
+    playerTeam = teamSelect.value;
+    difficulty = difficultySelect.value;
+    menu.style.display = 'none';
+    gameDiv.style.display = 'block';
+    startGame();
+  });
+
+  backBtn.addEventListener('click', () => {
+    gameDiv.style.display = 'none';
+    menu.style.display = 'flex';
+  });
+})();
+</script>
+
+</body>
+</html>
